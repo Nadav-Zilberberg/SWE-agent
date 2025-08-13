@@ -175,6 +175,7 @@ class RunReplay:
             deployment=self.deployment,
             repo=self.config.env.repo,
             post_startup_commands=[],
+            post_run_commands=[],
         )
 
     def _get_agent(self) -> DefaultAgent:

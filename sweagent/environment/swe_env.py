@@ -41,7 +41,8 @@ class EnvironmentConfig(BaseModel):
     """Timeout for the post-startup commands.
     NOTE: The timeout applies to every command in `post_startup_commands` separately.
     """
-
+    post_run_commands: list[str] = []
+    post_run_command_timeout: int = 500
     # pydantic config
     model_config = ConfigDict(extra="forbid")
 
@@ -56,6 +57,8 @@ class SWEEnv:
         repo: Repo | RepoConfig | None,
         post_startup_commands: list[str],
         post_startup_command_timeout: int = 500,
+        post_run_commands: list[str],
+        post_run_command_timeout: int = 500,
         hooks: list[EnvHook] | None = None,
         name: str = "main",
     ):
@@ -74,6 +77,8 @@ class SWEEnv:
         self.repo = repo
         self._post_startup_commands = post_startup_commands
         self.post_startup_command_timeout = post_startup_command_timeout
+        self._post_run_commands = post_run_commands
+        self.post_run_command_timeout = post_run_command_timeout
         self.logger = get_logger("swea-env", emoji="🪴")
         self.name = name
         self.clean_multi_line_functions = lambda x: x
@@ -94,6 +99,8 @@ class SWEEnv:
             repo=config.repo,
             post_startup_commands=config.post_startup_commands,
             post_startup_command_timeout=config.post_startup_command_timeout,
+            post_run_commands = config.post_run_commands,
+            post_run_command_timeout = config.post_run_command_timeout,
             name=config.name,
         )
 
@@ -168,6 +175,8 @@ class SWEEnv:
     def close(self) -> None:
         """Shutdown SWE-ReX deployment etc."""
         self.logger.info("Beginning environment shutdown...")
+        for command in self._post_run_commands:
+            self.communicate(command, check="raise", timeout=self.post_run_command_timeout)
         asyncio.run(self.deployment.stop())
         self._chook.on_close()
 
@@ -215,13 +224,13 @@ class SWEEnv:
         Returns:
             output: output from container
         """
-        self.logger.log(logging.TRACE, "Input:\n%s", input)  # type: ignore
+        self.logger.debug("Input:\n%s", input)  # type: ignore
         rex_check = "silent" if check else "ignore"
         r = asyncio.run(
             self.deployment.runtime.run_in_session(BashAction(command=input, timeout=timeout, check=rex_check))
         )
         output = r.output
-        self.logger.log(logging.TRACE, "Output:\n%s", output)  # type: ignore
+        self.logger.debug("Output:\n%s", output)  # type: ignore
         if check != "ignore" and r.exit_code != 0:
             self.logger.error(f"{error_msg}:\n{output}")
             msg = f"Command {input!r} failed ({r.exit_code=}): {error_msg}"
